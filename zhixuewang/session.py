@@ -1,8 +1,8 @@
+import rsa
 import json
+import base64
 import requests
 from zhixuewang.exceptions import LoginError, UserNotFoundError, UserOrPassError
-from zhixuewang.tools.password_helper import base64_encode, encode_password
-
 from zhixuewang.urls import Url
 
 
@@ -33,7 +33,21 @@ def get_session(username: str, password: str, _type: str = "auto") -> requests.S
         requests.session:
     """
     if len(password) != 32:
-        password = encode_password(password)
+        e = "010001"
+        m = "008c147f73c2593cba0bd007e60a89ade5"
+        keylength = rsa.common.byte_size(rsa.PublicKey(int(m, 16), int(e, 16)).n)
+        padding = b''
+        for i in range(keylength - len(password.encode()[::-1]) - 3):
+            padding += b'\x00'
+        padded = b''.join([b'\x00\x00', padding, b'\x00', password.encode()[::-1]])
+
+        payload = rsa.transform.bytes2int(padded)
+        encrypted = rsa.core.encrypt_int(payload,
+                                         rsa.PublicKey(int(m, 16), int(e, 16)).e,
+                                         rsa.PublicKey(int(m, 16), int(e, 16)).n)
+        block = rsa.transform.int2bytes(encrypted, keylength)
+
+        password = block.hex()
     session = get_basic_session()
     r = session.get(Url.SSO_URL)
     json_obj = json.loads(r.text.strip().replace("\\", "").replace("'", "")[1:-1])
@@ -68,8 +82,8 @@ def get_session(username: str, password: str, _type: str = "auto") -> requests.S
         "action": "login",
         "ticket": ticket,
     })
-    session.cookies.set("uname", base64_encode(username))
-    session.cookies.set("pwd", base64_encode(password))
+    session.cookies.set("uname", base64.b64encode(username.encode()).decode())
+    session.cookies.set("pwd", base64.b64encode(password.encode()).decode())
     return session
 
 
