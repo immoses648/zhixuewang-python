@@ -1,4 +1,3 @@
-
 import json
 import requests
 from zhixuewang.exceptions import LoginError, UserNotFoundError, UserOrPassError
@@ -6,11 +5,13 @@ from zhixuewang.tools.password_helper import base64_encode, encode_password
 
 from zhixuewang.urls import Url
 
+
 def get_basic_session() -> requests.Session:
     session = requests.Session()
     session.headers[
         "User-Agent"] = "Mozilla/5.0 (Windows NT 6.1; rv:2.0.1) Gecko/20100101 Firefox/4.0.1"
     return session
+
 
 def get_session(username: str, password: str, _type: str = "auto") -> requests.Session:
     """通过用户名和密码获取session
@@ -118,6 +119,7 @@ def get_user_id(username: str, password: str) -> str:
     if json_obj["result"] != "success":
         raise UserOrPassError()
     return ""
+
 
 def check_is_student(s: requests.Session) -> bool:
     """判断用户是否为学生

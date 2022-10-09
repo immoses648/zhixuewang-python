@@ -38,3 +38,6 @@ coverage.xml
 .vscode
 user
 test*
+
+
+venv

@@ -15,7 +15,6 @@ class RsaEncrypt:
 
     def _pad_for_encryption(self, message, target_length):
         message = message[::-1]
-        max_msglength = target_length - 11
         msglength = len(message)
 
         padding = b''

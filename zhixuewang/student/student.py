@@ -3,9 +3,9 @@ import json
 import math
 import time
 import uuid
-from enum import IntEnum
 from typing import List, Tuple, Union
-from zhixuewang.models import (Account, BasicSubject, ErrorBookTopic, ExtendedList, Exam, Homework, HwAnsPubData, HwResource, HwType, Mark, Role, StuHomework, Subject, SubjectScore,
+from zhixuewang.models import (Account, BasicSubject, ErrorBookTopic, ExtendedList, Exam,
+                               HwAnsPubData, HwResource, HwType, Mark, Role, StuHomework, Subject, SubjectScore,
                                StuClass, School, Sex, Grade, Phase, ExamInfo,
                                StuPerson, StuPersonList)
 from zhixuewang.exceptions import GetOriginalError, UserDefunctError, PageConnectionError, PageInformationError
@@ -22,12 +22,6 @@ def _md5_encode(msg: str) -> str:
     md5 = hashlib.md5()
     md5.update(msg.encode(encoding="utf-8"))
     return md5.hexdigest()
-
-
-class FriendMsg(IntEnum):
-    SUCCESS = 200  # 邀请成功
-    ALREADY = 201  # 已发送过邀请，等待对方答复
-    UNDEFINED = 202  # 未知错误
 
 
 class StudentAccount(Account, StuPerson):
@@ -102,7 +96,7 @@ class StudentAccount(Account, StuPerson):
                 grade=Grade(code=json_data["clazz"]["division"]["grade"]["code"],
                             name=json_data["clazz"]["division"]["grade"]["name"],
                             phase=Phase(code=json_data["clazz"]["division"]
-                                        ["grade"]["phase"]["code"],
+                            ["grade"]["phase"]["code"],
                                         name=json_data["clazz"]["division"]
                                         ["grade"]["phase"]["name"])))
             self.birthday = json_data.get("birthday", 0)
@@ -479,76 +473,7 @@ class StudentAccount(Account, StuPerson):
             return ExtendedList([])
         return self.__get_classmates(clazz.id)
 
-    def get_friends(self) -> ExtendedList[StuPerson]:
-        """获取朋友列表"""
-        self.update_login_status()
-        friends = StuPersonList()
-        r = self._session.get(Url.GET_FRIEND_URL,
-                              params={"d": int(time.time())})
-        if not r.ok:
-            raise PageConnectionError(f"get_friends中出错, 状态码为{r.status_code}")
-        try:
-            json_data = r.json()
-            for friend in json_data["friendList"]:
-                friends.append(
-                    StuPerson(name=friend["friendName"], id=friend["friendId"]))
-        except (JSONDecodeError, KeyError) as e:
-            raise PageInformationError(
-                f"get_friends中网页内容发生改变, 错误为{e}, 内容为\n{r.text}")
-        return friends
-
-    def invite_friend(self, friend: Union[StuPerson, str]) -> FriendMsg:
-        """邀请朋友
-
-        Args:
-            friend (Union[StuPerson, str]): 用户id 或 StuPerson的实例
-
-        Returns:
-            FriendMsg
-        """
-        self.update_login_status()
-        user_id = friend
-        if isinstance(friend, StuPerson):
-            user_id = friend.id
-        r = self._session.get(Url.INVITE_FRIEND_URL,
-                              params={
-                                  "d": int(time.time()),
-                                  "friendId": user_id,
-                                  "isTwoWay": "true"
-                              })
-        if not r.ok:
-            raise PageConnectionError(f"invite_friend中出错, 状态码为{r.status_code}")
-        json_data = r.json()
-        if json_data["result"] == "success":
-            return FriendMsg.SUCCESS
-        elif json_data["message"] == "已发送过邀请，等待对方答复":
-            return FriendMsg.ALREADY
-        else:
-            return FriendMsg.UNDEFINED
-
-    def remove_friend(self, friend: Union[StuPerson, str]) -> bool:
-        """删除朋友
-
-        Args:
-            friend (Union[StuPerson, str]): 用户id 或 StuPerson的实例
-
-        Returns:
-            bool: True 表示删除成功, False 表示删除失败
-        """
-        self.update_login_status()
-        user_id = friend
-        if isinstance(friend, StuPerson):
-            user_id = friend.id
-        r = self._session.get(Url.DELETE_FRIEND_URL,
-                              params={
-                                  "d": int(time.time()),
-                                  "friendId": user_id
-                              })
-        if not r.ok:
-            raise PageConnectionError(f"remove_friend中出错, 状态码为{r.status_code}")
-        return r.json()["result"] == "success"
-    
-    def get_homeworks(self, size: int = 20, is_complete: bool = False, subject_code: str = "-1", createTime: int = 0)  -> ExtendedList[StuHomework]:
+    def get_homeworks(self, size: int = 20, is_complete: bool = False, subject_code: str = "-1", createTime: int = 0) -> ExtendedList[StuHomework]:
         """获取指定数量的作业(暂时不支持获取所有作业)
 
         Args:
@@ -563,10 +488,10 @@ class StudentAccount(Account, StuPerson):
         r = self._session.get(Url.GET_HOMEWORK_URL, params={
             "pageIndex": 2,
             "completeStatus": 1 if is_complete else 0,
-            "pageSize": size, # 取几个
+            "pageSize": size,  # 取几个
             "subjectCode": subject_code,
             "token": self._get_auth_header()["XToken"],
-            "createTime": createTime # 创建时间在多久以前的 0 为从最新开始
+            "createTime": createTime  # 创建时间在多久以前的 0 为从最新开始
         })
         homeworks: ExtendedList[StuHomework] = ExtendedList()
         data = r.json()["result"]
@@ -594,7 +519,7 @@ class StudentAccount(Account, StuPerson):
                 stu_hwid=each["stuHwId"]
             ))
         return homeworks
-    
+
     def get_homework_resources(self, hwid: str, hw_typecode: int) -> List[HwResource]:
         """获取指定作业的作业资源(例如题目文档)
 
@@ -608,7 +533,7 @@ class StudentAccount(Account, StuPerson):
         if hw_typecode == 102:
             return []
         r = self._session.post(Url.GET_HOMEWORK_RESOURCE_URL, json={
-            "base":{
+            "base": {
                 "appId": "WNLOIVE",
                 "appVersion": "",
                 "sysVersion": "v1001",
@@ -617,7 +542,7 @@ class StudentAccount(Account, StuPerson):
                 "udid": self.id,
                 "expand": {}
             },
-            "params": {"hwId":hwid}
+            "params": {"hwId": hwid}
         }, headers={
             "Authorization": self._get_auth_header()["XToken"],
         })
@@ -651,14 +576,14 @@ class StudentAccount(Account, StuPerson):
             each_mark = mark.find(lambda t: t.subject.code == each["subjectCode"])
             if each_mark is not None:
                 each_mark.class_rank = math.ceil(each["myRank"] / 100 * num)
-    
+
     def get_errorbook(self, exam_id, subject_id: str) -> List[ErrorBookTopic]:
         r = self._session.get(Url.GET_ERRORBOOK_URL, params={
             "examId": exam_id,
             "paperId": subject_id
         }, headers=self._get_auth_header())
         data = r.json()
-        if data["errorCode"] != 0: #  {'errorCode': 40217, 'errorInfo': '暂时未收集到试题信息,无法查看', 'result': ''}
+        if data["errorCode"] != 0:  # {'errorCode': 40217, 'errorInfo': '暂时未收集到试题信息,无法查看', 'result': ''}
             raise Exception(data)
         result = []
         for each in data["result"]["wrongTopicAnalysis"]["topicList"]:
