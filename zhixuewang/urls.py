@@ -13,18 +13,11 @@ class Url:
 
     INFO_URL = f"{BASE_URL}/container/container/student/account/"
 
-    # Login
-    SERVICE_URL = f"{BASE_URL}:443/ssoservice.jsp"
-
-    CHANGE_PASSWORD_URL = f"{BASE_URL}/portalcenter/home/updatePassword/"
-
     # Exam
     XTOKEN_URL = f"{BASE_URL}/addon/error/book/index"
     GET_STU_EXAM_URL = f"{BASE_URL}/zhixuebao/report/exam/getUserExamList"
     GET_RECENT_EXAM_URL = f"{BASE_URL}/zhixuebao/report/exam/getRecentExam"
-    # GET_MARK_URL = f"{BASE_URL}/zhixuebao/zhixuebao/feesReport/getStuSingleReportDataForPK/"
-    GET_SUBJECT_URL = f"{BASE_URL}/zhixuebao/report/exam/getReportMain"
-    GET_MARK_URL = GET_SUBJECT_URL
+    GET_MARK_URL = f"{BASE_URL}/zhixuebao/report/exam/getReportMain"
     GET_ORIGINAL_URL = f"{BASE_URL}/zhixuebao/report/checksheet/"
 
     # Person

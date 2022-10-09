@@ -112,7 +112,7 @@ class StudentAccount(Account, StuPerson):
             raise PageInformationError(
                 f"get_student_account_info中网页内容发生改变, 错误为{e}, 内容为\n{r.text}")
 
-    def get_page_exam(self, page_index: int = 1, page_size: int = 10) -> dict:  # 已重写
+    def get_user_exam_list(self, page_index: int = 1, page_size: int = 10) -> dict:
         """获取指定页数的考试列表"""
         self.update_login_status()
         r = self._session.get(Url.GET_STU_EXAM_URL,
@@ -207,6 +207,25 @@ class StudentAccount(Account, StuPerson):
         r = self._session.get(Url.GET_CLASSMATES_URL,
                               params={
                                   "r": f"{self.id}student",
+                                  "clazzId": clazz_id
+                              })
+        if not r.ok:
+            raise PageConnectionError(
+                f"__get_classmates中出错, 状态码为{r.status_code}")
+        try:
+            return r.json()
+        except (JSONDecodeError, KeyError) as e:
+            raise PageInformationError(
+                f"__get_classmates中网页内容发生改变, 错误为{e}, 内容为\n{r.text}")
+
+    def get_contact_teachers(self, clazz_id: str = None) -> list:  # 已重写
+        """获取班级所有老师"""
+        if clazz_id is None:
+            clazz_id = self.clazz.id
+        self.update_login_status()
+        r = self._session.get(Url.GET_TEACHERS_URL,
+                              params={
+                                  "r": f"{self.id}teacher",
                                   "clazzId": clazz_id
                               })
         if not r.ok:

@@ -28,7 +28,7 @@ class TeacherAccount(Account, TeaPerson):
         self.name = json_data.get("name")
         return self
 
-    async def __get_school_exam_classes(self, school_id: str, subject_id: str) -> List[StuClass]:
+    async def __get_marking_school_class(self, school_id: str, subject_id: str) -> List[StuClass]:
         async with httpx.AsyncClient(cookies=self._session.cookies) as client:
             r = await client.get(Url.GET_EXAM_SCHOOLS_URL, params={
                 "schoolId": school_id,
@@ -36,9 +36,9 @@ class TeacherAccount(Account, TeaPerson):
             })
             return r.json()
 
-    def get_school_exam_classes(self, school_id: str, subject_id: str):
+    def get_marking_school_class(self, school_id: str, subject_id: str):
         self.update_login_status()
-        return asyncio.run(self.__get_school_exam_classes(school_id, subject_id))
+        return asyncio.run(self.__get_marking_school_class(school_id, subject_id))
 
     def get_original_paper(self, user_id: str, paper_id: str, save_to_path: str):
         """
@@ -72,7 +72,7 @@ class TeacherAccount(Account, TeaPerson):
         })
         return r.json()
 
-    def get_marking_progress(self, subject_id: str, school_id: str = ""):
+    def get_marking_progress_detail(self, subject_id: str, school_id: str = ""):
         return self._session.post(Url.GET_MARKING_PROGRESS_URL, data={
             "progressParam": json.dumps({
                 "markingPaperId": subject_id,
@@ -89,7 +89,7 @@ class TeacherAccount(Account, TeaPerson):
             })
         }).json()
 
-    async def _get_marking_progress_async(self, subject_id: str, school_id: str):
+    async def _get_marking_progress_detail_async(self, subject_id: str, school_id: str):
         async with httpx.AsyncClient(cookies=self._session.cookies) as client:
             r = await client.post(Url.GET_MARKING_PROGRESS_URL, data={
                 "progressParam": json.dumps({
