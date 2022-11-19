@@ -1,3 +1,4 @@
+import re
 import time
 import uuid
 import json
@@ -82,6 +83,7 @@ class URLs:
     GET_EXAM_SCHOOLS_URL = f"{BASE_URL}/exam/marking/schoolClass"
     GET_EXAM_SUBJECTS_URL = f"{BASE_URL}/configure/class/getSubjectsIncludeSubAndGroup"
     ORIGINAL_PAPER_URL = f"{BASE_URL}/classreport/class/student/checksheet/"
+    GET_SIMPLE_ANSWER_RECORDS_URL = f"{BASE_URL}/commonment/class/getSimpleAnswerRecords/"
 
 
 # MODELS
@@ -172,7 +174,7 @@ class StudentAccount(Account):
         return self._get_auth_header()
 
     def set_base_info(self):
-        """设置账户基本信息, 如用户id, 姓名, 学校等"""
+        """设置账户基本信息, 如用户id等"""
         self.update_login_status()
         r = self._session.get(URLs.INFO_URL)
         if not r.ok:
@@ -276,7 +278,7 @@ class StudentAccount(Account):
         self.update_login_status()
         r = self._session.get(URLs.GET_TEACHERS_URL)
         if not r.ok:
-            raise PageConnectionError(f"__get_classmates中出错, 状态码为{r.status_code}")
+            raise PageConnectionError(f"接口返回错误, 状态码为{r.status_code}")
         try:
             return r.json()
         except (json.JSONDecodeError, KeyError) as e:
@@ -345,12 +347,12 @@ class TeacherAccount(Account):
         """
         self.update_login_status()
         if save_to_path is None:
-            save_to_path = f"{user_id}_{paper_id}.html"
+            save_to_path = f"./{user_id}_{paper_id}.html"
         req = self._session.get(URLs.ORIGINAL_PAPER_URL, params={
             "userId": user_id,
             "paperId": paper_id
         })
-        if req.ok:
+        if req.ok and "生成" not in req.text:
             result = req.text.replace("//static.zhixue.com", "https://static.zhixue.com")  # 替换html内容，让文件可以正常显示
             if result_type == "save":
                 with open(save_to_path, encoding="utf-8", mode="w+") as fhandle:
@@ -360,10 +362,8 @@ class TeacherAccount(Account):
                 return result
             else:
                 raise ValueError("Argument 'type' must be 'save' or 'return'")
-
-    def get_subjects_include_sub_and_group(self, exam_id: str):
-        self.update_login_status()
-        return self._session.get(URLs.GET_EXAM_SUBJECTS_URL, params={"examId": exam_id}).json()
+        else:
+            raise PageInformationError("获取原卷失败")
 
     def get_scanrecognition(self, exam_id: str):
         """获取考试详情"""
@@ -378,7 +378,7 @@ class TeacherAccount(Account):
                 "markingPaperId": subject_id,
                 "topicNum": None,
                 "subTopicIndex": None,
-                "topicStartNum": None,
+                "topicStartNum": 1,
                 "schoolId": school_id,
                 "topicProgress": "",
                 "teacherProgress": "",
@@ -407,6 +407,49 @@ class TeacherAccount(Account):
                 })
             })
             return r.json()
+
+    def get_one_score(self, stu_id, paper_id):
+        data = self._session.get(
+            url='https://www.zhixue.com/classreport/class/student/checksheet/',
+            params={
+                'userId': stu_id,
+                'paperId': paper_id
+            }
+        )
+        t_score = 0.0
+        try:
+            for i in json.loads(re.findall(r'var sheetDatas = (.*?);',
+                                           data.text)[0])["userAnswerRecordDTO"]["answerRecordDetails"]:
+                t_score += i["score"]
+        except:
+            pass
+        return t_score
+
+    def get_simple_answer_records(self,
+                                  clazz_id: str, topic_set_id: str, topic_number: int = 1, _type: str = "a") -> list:
+        """获取班级单题答题记录"""
+        self.update_login_status()
+        return self._session.get(URLs.GET_SIMPLE_ANSWER_RECORDS_URL, params={
+            "classId": clazz_id,
+            "topicSetId": topic_set_id,
+            "topicNumber": topic_number,
+            "type": _type
+        }).json()
+
+    def get_school_answer_records(self, topic_set_id: str, topic_number: int = 1) -> list[list]:
+        """获取学校单题答题记录"""
+        ret = []
+        for each in self.get_marking_school_class("2300000001000674117", topic_set_id):
+            ret.extend(self.get_simple_answer_records(each['classId'], topic_set_id, topic_number))  # (ret.append)
+        return ret
+
+    def get_school_mark(self, exam_id) -> list[list[list]]:
+        """获取学校考试分数"""
+        self.update_login_status()
+        ret = []
+        for each in self.get_scanrecognition(exam_id)['result']['subjectList']:
+            ret.append(self.get_school_answer_records(each['id']))
+        return ret
 
     def get_token(self) -> str:
         if self._token is not None:
