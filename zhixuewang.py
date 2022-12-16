@@ -436,20 +436,20 @@ class TeacherAccount(Account):
             "type": _type
         }).json()
 
-    def get_school_answer_records(self, topic_set_id: str, topic_number: int = 1) -> list[list]:
+    def get_school_answer_records(self,school_id: str, topic_set_id: str, topic_number: int = 1) -> list[list]:
         """获取学校单题答题记录"""
         ret = []
-        for each in self.get_marking_school_class("2300000001000674117", topic_set_id):
+        for each in self.get_marking_school_class(school_id, topic_set_id):
             ret.extend(self.get_simple_answer_records(each['classId'], topic_set_id, topic_number))  # (ret.append)
         return ret
 
-    def get_school_mark(self, exam_id) -> list[list[list]]:
-        """获取学校考试分数"""
-        self.update_login_status()
-        ret = []
-        for each in self.get_scanrecognition(exam_id)['result']['subjectList']:
-            ret.append(self.get_school_answer_records(each['id']))
-        return ret
+#     def get_school_mark(self, exam_id) -> list[list[list]]:
+#         """获取学校考试分数"""
+#         self.update_login_status()
+#         ret = []
+#         for each in self.get_scanrecognition(exam_id)['result']:
+#             ret.append(self.get_school_answer_records(each['id']))
+#         return ret
 
     def get_token(self) -> str:
         if self._token is not None:
