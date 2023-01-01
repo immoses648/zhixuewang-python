@@ -44,3 +44,4 @@ venv
 ts.py
 *.html
 user.data
+.DS_Store

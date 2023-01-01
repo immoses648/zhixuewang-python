@@ -1,16 +1,13 @@
 import re
+import rsa
 import time
 import uuid
 import json
-import rsa
 import httpx
 import base64
-import pickle
 import asyncio
 import hashlib
-import datetime
 import requests
-from dataclasses import dataclass
 
 
 # EXCEPTIONS
@@ -74,31 +71,17 @@ class URLs:
     GET_PAPER_LEVEL_TREND_URL = f"{BASE_URL}/zhixuebao/report/paper/getLevelTrend"
     GET_LOST_TOPIC_URL = f"{BASE_URL}/zhixuebao/report/paper/getExamPointsAndScoringAbility"
     GET_SUBJECT_DIAGNOSIS = f"{BASE_URL}/zhixuebao/report/exam/getSubjectDiagnosis"
+    GET_TRANSCRIPT_ANALYSIS_URL = f"{BASE_URL}/zhixuebao/zhixuebao/transcript/analysis/main/"
 
     # TEACHER
-    GET_TEA_EXAM_URL = f"{BASE_URL}/classreport/class/classReportList/"
-    GET_AcademicTermTeachingCycle_URL = f"{BASE_URL}/classreport/class/getAcademicTermTeachingCycle/"
+    GET_CLASS_REPORT_LIST_URL = f"{BASE_URL}/api-classreport/class/classReportList/"
+    GET_ACADEMIC_TERM_TEACHING_CYCLE_URL = f"{BASE_URL}/classreport/class/getAcademicTermTeachingCycle/"
     GET_MARKING_PROGRESS_URL = f"{BASE_URL}/marking/marking/markingProgressDetail"
     GET_EXAM_DETAIL_URL = f"{BASE_URL}/scanmuster/cloudRec/scanrecognition"
     GET_EXAM_SCHOOLS_URL = f"{BASE_URL}/exam/marking/schoolClass"
-    GET_EXAM_SUBJECTS_URL = f"{BASE_URL}/configure/class/getSubjectsIncludeSubAndGroup"
+    # GET_EXAM_SUBJECTS_URL = f"{BASE_URL}/configure/class/getSubjectsIncludeSubAndGroup"
     ORIGINAL_PAPER_URL = f"{BASE_URL}/classreport/class/student/checksheet/"
     GET_SIMPLE_ANSWER_RECORDS_URL = f"{BASE_URL}/commonment/class/getSimpleAnswerRecords/"
-
-
-# MODELS
-def get_property(arg_name: str) -> property:
-    def setter(self, mill_timestamp):
-        self.__dict__[arg_name] = datetime.datetime(1970, 1, 1) + datetime.timedelta(seconds=(mill_timestamp / 1000))
-
-    return property(fget=lambda self: self.__dict__[arg_name],
-                    fset=setter)
-
-
-@dataclass
-class AccountData:
-    username: str
-    encoded_password: str
 
 
 class Account:
@@ -108,12 +91,6 @@ class Account:
         self.role = None
         self.username = base64.b64decode(session.cookies["uname"].encode()).decode()
         self.info = None
-
-    def save_account(self, path: str = "user.data"):
-        with open(path, "wb") as f:
-            data = pickle.dumps(AccountData(self.username,
-                                            base64.b64decode(self._session.cookies["pwd"].encode()).decode()))
-            f.write(base64.b64encode(data))
 
     def update_login_status(self):
         """更新登录状态. 如果session过期自动重新获取"""
@@ -235,6 +212,24 @@ class StudentAccount(Account):
             raise PageConnectionError(f"出错, 状态码为{r.status_code}")
         return r.json()
 
+    def get_transcript_analysis(self, subject_code: int, paper_id: str, exam_id: str) -> dict:
+        """获取成绩分析"""
+        self.update_login_status()
+        ret = self._session.get(URLs.GET_TRANSCRIPT_ANALYSIS_URL,
+                                params={
+                                    "subjectCode": subject_code,
+                                    "classId": 'null',
+                                    "paperId": paper_id,
+                                    "examId": exam_id
+                                },
+                                headers=self._get_auth_header())
+        if not ret.ok:
+            raise PageConnectionError(f"get_transcript_analysis中出错, 状态码为{ret.status_code}")
+        try:
+            return json.loads(re.findall(r'var hisQueParseDetail = (.*?);', ret.text)[0])
+        except (json.JSONDecodeError, KeyError) as e:
+            raise PageInformationError(f"get_transcript_analysis中网页内容发生改变, 错误为{e}, 内容为\n{ret.text}")
+
     def get_checksheet(self, subject_id: str, exam_id=None):
         if exam_id is None:
             exam_id = self.get_recent_exam()["result"]["examInfo"]["examId"]
@@ -335,6 +330,42 @@ class TeacherAccount(Account):
     def get_marking_school_class(self, school_id: str, subject_id: str):
         self.update_login_status()
         return asyncio.run(self.__get_marking_school_class(school_id, subject_id))
+
+    def get_class_report_list(self, start_time=None, end_time=None, exam_name: str = None, grade_code="all",
+                              class_id="all",
+                              subject_code="all", search_type="schoolYearType", circles_year=None,
+                              exam_type_code="all", term_id=None, teaching_cycle_id=None,
+                              page_size=100, page_index=1) -> dict:
+        """获取班级报告列表
+        :param
+        :return: dict"""
+        self.update_login_status()
+        r = self._session.get(URLs.GET_CLASS_REPORT_LIST_URL, params={
+            "examName": exam_name,
+            "gradeCode": grade_code,
+            "classId": class_id,
+            "subjectCode": subject_code,
+            "searchType": search_type,
+            "circlesYear": circles_year,
+            "examTypeCode": exam_type_code,
+            "termId": term_id,
+            "teachingCycleId": teaching_cycle_id,
+            "startTime": start_time,
+            "endTime": end_time,
+            "pageSize": page_size,
+            "pageIndex": page_index,
+            "t": int(time.time())
+        })
+        if r.ok:
+            return r.json()
+
+    # getAcademicTermTeachingCycle
+    def get_academic_term_teaching_cycle(self, term_id: str = None) -> dict:
+        """获取学期教学周期"""
+        self.update_login_status()
+        r = self._session.get(URLs.GET_ACADEMIC_TERM_TEACHING_CYCLE_URL)
+        if r.ok:
+            return r.json()
 
     def get_topic(self, user_id: str, paper_id: str, save_to_path: str = None, result_type: str = "save"):
         """
@@ -457,13 +488,6 @@ class TeacherAccount(Account):
         self._token = self._session.get(
             "https://www.zhixue.com/container/app/token/getToken").json()["result"]
         return self._token
-
-
-def load_account(path: str = "user.data") -> Account:
-    with open(path, "rb") as f:
-        data = base64.b64decode(f.read())
-        account_data: AccountData = pickle.loads(data)
-        return login(account_data.username, account_data.encoded_password)
 
 
 def login(username: str, password: str, _type: str = "auto", _data: bool = True):
