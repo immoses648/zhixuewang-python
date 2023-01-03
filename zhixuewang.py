@@ -527,8 +527,6 @@ def login(username: str, password: str, _type: str = "auto", _data: bool = True)
     json_obj = json.loads(r.text.strip().replace("\\", "").replace("'", "")[1:-1])
     if json_obj["code"] != 1000:
         raise LoginError(json_obj["data"])
-    lt = json_obj["data"]["lt"]
-    execution = json_obj["data"]["execution"]
     r = session.get(URLs.SSO_URL,
                     params={
                         "encode": "true",
@@ -538,8 +536,8 @@ def login(username: str, password: str, _type: str = "auto", _data: bool = True)
                         "client": "web",
                         "type": "loginByNormal",
                         "key": _type,
-                        "lt": lt,
-                        "execution": execution,
+                        "lt": json_obj["data"]["lt"],
+                        "execution": json_obj["data"]["execution"],
                         "customLogoutUrl": "https://www.zhixue.com/login.html",
                         "username": username,
                         "password": password
