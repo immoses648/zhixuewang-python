@@ -41,7 +41,13 @@ class URLs:
     tch_checksheet = f"{base}/classreport/class/student/checksheet/"
     exam_detail = f"{base}/scanmuster/cloudRec/scanrecognition"
     exam_clazzs = f"{base}/exam/marking/schoolClass"
+    # https://www.zhixue.com/commonment/class/getClassTopicDetailWithNoTopic?markingPaperTopicId=&classId=&topicSetId=&topicTypeId=01&paperType=a
+    # clazz_topic_detail = f"{base}/commonment/class/getClassTopicDetailWithNoTopic"
+    # https://www.zhixue.com/commonment/class/getTypicalPaper
+    # POST topicSetId=&classId=&topicId=&topicNumber=
+    # typical_paper = f"{base}/commonment/class/getTypicalPaper"
     simple_answer_records = f"{base}/commonment/class/getSimpleAnswerRecords/"
+    stu_exam_detail = f"{base}/freshprecisionapi/studentLiteracy/getStuExamDetail"
 
 
 class Account:
@@ -62,7 +68,7 @@ class Account:
         if not self._session.get(URLs.login_state).json()["result"] == "success":  # 检查登录状态
             self._session = login(
                 username=self.info['loginName'],
-                password=base64.b64decode(self._session.cookies["pwd"].encode()).decode())
+                password=base64.b64decode(self._session.cookies["pwd"].encode()).decode())._session
         if headers_required:  # （学生）如果需要headers就获取
             auth_guid = str(uuid.uuid4())
             auth_time_stamp = str(int(time.time() * 1000))
@@ -89,12 +95,12 @@ class Account:
             raise ValueError(
                 "No Permission."
             ) if req.status_code == 500 else RuntimeError(
-                f"Request Error: {req.status_code}"
+                f"Request Error: {req.status_code}/{req.text}"
             )
         if check:
             try:
                 if req.json()['errorCode'] != 0:
-                    raise ValueError(f"API Error Code: {req.json()['errorCode']}")
+                    raise ValueError(f"API Error: {req.json()['errorCode']}/{req.text}")
                 return req.json()['result'] if return_json else req
             except (json.JSONDecodeError, KeyError) as e:
                 raise RuntimeError(f'API Error: {req.status_code}/{req.text}/{e}')
@@ -105,9 +111,6 @@ class Account:
 class StudentAccount(Account):
     """学生账号"""
 
-    def __init__(self, session):
-        super().__init__(session)
-
     def set_base_info(self):
         """设置账户基本信息"""
         json_data = self.request_api(URLs.stu_info)["student"]
@@ -117,8 +120,11 @@ class StudentAccount(Account):
         return self
 
     def get_exam_list(self, page_index: int = 1, page_size: int = 10) -> dict:
-        return self.request_api(URLs.stu_exams, params={"pageIndex": page_index, "pageSize": page_size},
-                                headers_required=True, check=True)
+        """获取考试列表"""
+        return self.request_api(
+            URLs.stu_exams,
+            params={"pageIndex": page_index, "pageSize": page_size},
+            headers_required=True, check=True)
 
     def get_recent_exam(self) -> dict:
         """获取最新考试"""
@@ -137,6 +143,7 @@ class StudentAccount(Account):
         return exams
 
     def get_exam_report(self, exam: str = None) -> dict:
+        """获取考试报告"""
         return self.request_api(
             URLs.exam_report,
             params={"examId": self.get_recent_exam()["examInfo"]["examId"] if exam is None else exam},
@@ -145,6 +152,7 @@ class StudentAccount(Account):
         )
 
     def get_checksheet(self, subject_id: str, exam_id=None):
+        """（学生）获取原卷"""
         return self.request_api(
             URLs.stu_checksheet,
             params={
@@ -171,6 +179,7 @@ class StudentAccount(Account):
         return self.request_api(URLs.teachers)
 
     def get_exam_level_trend(self, exam_id: str = None, page_index: int = 1, page_size: int = 100) -> dict:
+        """获取考试等级趋势"""
         return self.request_api(
             URLs.exam_level_trend,
             params={
@@ -182,6 +191,7 @@ class StudentAccount(Account):
         )
 
     def get_subject_diagnosis(self, exam_id: str = None) -> dict:
+        """获取科目诊断"""
         return self.request_api(
             URLs.subject_diagnosis,
             params={"examId": self.get_recent_exam()["examInfo"]["examId"] if exam_id is None else exam_id},
@@ -193,31 +203,29 @@ class StudentAccount(Account):
 class TeacherAccount(Account):
     """老师账号"""
 
-    def __init__(self, session):
-        super().__init__(session)
-
     def set_base_info(self):
         self.info = self.request_api(
             URLs.tch_info,
-            headers={"referer": "https://www.zhixue.com/container/container/teacher/index/"}
-        )["teacher"]
+            headers={"referer": "https://www.zhixue.com/container/container/teacher/index/"})["teacher"]
         return self
 
-    async def __get_marking_school_class(self, school_id: str, subject_id: str):
+    async def __get_exam_clazzs(self, school_id: str, subject_id: str):
         async with httpx.AsyncClient(cookies=self._session.cookies) as client:
             return (await client.get(
                 URLs.exam_clazzs,
                 params={"schoolId": school_id, "markingPaperId": subject_id}
             )).json()
 
-    def get_marking_school_class(self, school_id: str, subject_id: str):
-        return asyncio.run(self.__get_marking_school_class(school_id, subject_id))
+    def get_exam_clazzs(self, school_id: str, subject_id: str):
+        """获取某校中参与考试的班级（无鉴权）"""
+        return asyncio.run(self.__get_exam_clazzs(school_id, subject_id))
 
-    def get_class_report_list(self, start_time=None, end_time=None, exam_name: str = None, grade_code="all",
-                              class_id="all", subject_code="all", search_type="schoolYearType", circles_year=None,
-                              exam_type_code="all", term_id=None, teaching_cycle_id=None,
-                              page_size=100, page_index=1) -> dict:
-        """获取教师报告列表"""
+    def get_exams(
+            self, start_time=None, end_time=None, exam_name: str = None, grade_code="all",
+            class_id="all", subject_code="all", search_type="schoolYearType", circles_year=None,
+            exam_type_code="all", term_id=None, teaching_cycle_id=None,
+            page_size=100, page_index=1) -> dict:
+        """获取教师报告列表（强鉴权）"""
         return self.request_api(URLs.tch_exams, params={
             "examName": exam_name,
             "gradeCode": grade_code,
@@ -237,7 +245,7 @@ class TeacherAccount(Account):
 
     def get_checksheet(self, user_id: str, paper_id: str, save_to_path: str = None, ret: bool = False):
         """
-        获得原卷
+        获得原卷（普通鉴权）
         Args:
             user_id (str): 学生的userId
             paper_id (str): 试卷的topicSetId
@@ -259,12 +267,7 @@ class TeacherAccount(Account):
         return
 
     def get_checksheet_datas(self, user_id: str, paper_id: str):
-        """
-        获得原卷中的数据（包括答题卡裁切定位信息、题目信息及阅卷情况等）
-        Args:
-            user_id (str): 学生的userId
-            paper_id (str): 试卷的topicSetId
-        """
+        """获得原卷中的数据（包括答题卡裁切定位信息、题目信息及阅卷情况等）（普通鉴权）"""
         return json.loads(re.findall(
             r'var sheetDatas = (.*?);',
             self.request_api(
@@ -273,16 +276,46 @@ class TeacherAccount(Account):
                 return_json=False).text)[0])
 
     def get_exam_detail(self, exam_id: str):
-        """获取考试详情"""
+        """获取考试详情（无鉴权）"""
         return self.request_api(URLs.exam_detail, params={"examId": exam_id}, check=True)
 
     def get_simple_answer_records(
             self, clazz_id: str, topic_set_id: str, topic_number: int = 1, _type: str = "a"
     ) -> list:
-        """获取班级单题答题记录"""
+        """获取班级单题答题记录（普通鉴权）"""
         return self.request_api(
             URLs.simple_answer_records,
             params={"classId": clazz_id, "topicSetId": topic_set_id, "topicNumber": topic_number, "type": _type}
+        )
+
+    def get_stu_exam_detail(self, subject_id, clazz_id, stu_id, time_id=None, exam_type=None, clazz_type="1"):
+        """获取学生某科目往次考试详情（强鉴权）"""
+        return self.request_api(
+            URLs.stu_exam_detail,
+            params={"userId": self.info['id'],
+                    "subjectId": subject_id,
+                    "timeId": "2022-2023,"
+                              "2021-2022,"
+                              "2020-2021,"
+                              "2019-2020,"
+                              "2018-2019,"
+                              "2017-2018,"
+                              "2016-2017,"
+                              "2015-2016,"
+                              "2014-2015"
+                    if time_id is None else time_id,
+                    "classId": clazz_id,
+                    "stuId": stu_id,
+                    "examType": "midtermExam,"
+                                "terminalExam,"
+                                "weeklyExam,"
+                                "monthlyExam,"
+                                "unifiedExam,"
+                                "homework,"
+                                "limitedTimeWork,"
+                                "mockExam" if exam_type is None else exam_type,
+                    "classType": clazz_type,
+                    "t": int(time.time())}
         )
 
 
@@ -331,9 +364,9 @@ def login(username: str, password: str, _type: str = "auto"):
     json_obj = json.loads(r.text.strip().replace("\\", "").replace("'", "")[1:-1])
     if json_obj["code"] != 1001:
         if json_obj["code"] == 1002:
-            raise ValueError("Username or password is incorrect")
+            raise ValueError("Incorrect username and password")
         if json_obj["code"] == 2009:
-            raise ValueError("Account not exist")
+            raise ValueError("Account does not exist")
         raise RuntimeError(f'An error occured when login:{json_obj["code"]}/{json_obj["data"]}')
     session.post(URLs.sso_service, data={"action": "login", "ticket": json_obj["data"]["st"]})
     session.cookies.set("uname", base64.b64encode(username.encode()).decode())
