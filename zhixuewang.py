@@ -1,5 +1,3 @@
-# import pickle
-import asyncio
 import base64
 import hashlib
 import json
@@ -7,7 +5,6 @@ import re
 import time
 import uuid
 
-import httpx
 import requests
 import rsa.common
 import rsa.core
@@ -41,11 +38,10 @@ class URLs:
     tch_checksheet = f"{base}/classreport/class/student/checksheet/"
     exam_detail = f"{base}/scanmuster/cloudRec/scanrecognition"
     exam_clazzs = f"{base}/exam/marking/schoolClass"
-    # https://www.zhixue.com/commonment/class/getClassTopicDetailWithNoTopic?markingPaperTopicId=&classId=&topicSetId=&topicTypeId=01&paperType=a
     # clazz_topic_detail = f"{base}/commonment/class/getClassTopicDetailWithNoTopic"
-    # https://www.zhixue.com/commonment/class/getTypicalPaper
-    # POST topicSetId=&classId=&topicId=&topicNumber=
+    # ?markingPaperTopicId=&classId=&topicSetId=&topicTypeId=01&paperType=a
     # typical_paper = f"{base}/commonment/class/getTypicalPaper"
+    # ?topicSetId=&classId=&topicId=&topicNumber=
     simple_answer_records = f"{base}/commonment/class/getSimpleAnswerRecords/"
     stu_exam_detail = f"{base}/freshprecisionapi/studentLiteracy/getStuExamDetail"
 
@@ -53,8 +49,7 @@ class URLs:
 class Account:
     def __init__(self, session):
         self._session = session
-        self._token = None
-        self._timestamp = None
+        self._auth = {'token': None, 'timestamp': 0.0}
         self.info = None
 
     def request_api(
@@ -75,20 +70,20 @@ class Account:
             md5 = hashlib.md5()
             md5.update((auth_guid + auth_time_stamp + "iflytek!@#123student").encode(encoding="utf-8"))
             auth_token = md5.hexdigest()
-            if not self._token or (time.time() - self._timestamp) >= 600:  # 判断token是否过期
-                self._token = self.request_api(URLs.xtoken, headers={
+            if not self._auth['token'] or (time.time() - self._auth['timestamp']) >= 600:  # 判断token是否过期
+                self._auth['token'] = self.request_api(URLs.xtoken, headers={
                     "authbizcode": "0001",
                     "authguid": auth_guid,
                     "authtimestamp": auth_time_stamp,
                     "authtoken": auth_token
                 }, check=True)
-                self._timestamp = time.time()
+                self._auth['timestamp'] = time.time()
             headers = {
                 "authbizcode": "0001",
                 "authguid": auth_guid,
                 "authtimestamp": auth_time_stamp,
                 "authtoken": auth_token,
-                "XToken": self._token
+                "XToken": self._auth['token']
             }
         req = self._session.get(url=url, params=params, headers=headers)
         if req.status_code != 200 or not req.ok:
@@ -185,7 +180,8 @@ class StudentAccount(Account):
             params={
                 "examId": self.get_recent_exam()["examInfo"]["examId"] if exam_id is None else exam_id,
                 "pageIndex": page_index,
-                "pageSize": page_size},
+                "pageSize": page_size
+            },
             headers_required=True,
             check=True
         )
@@ -209,16 +205,9 @@ class TeacherAccount(Account):
             headers={"referer": "https://www.zhixue.com/container/container/teacher/index/"})["teacher"]
         return self
 
-    async def __get_exam_clazzs(self, school_id: str, subject_id: str):
-        async with httpx.AsyncClient(cookies=self._session.cookies) as client:
-            return (await client.get(
-                URLs.exam_clazzs,
-                params={"schoolId": school_id, "markingPaperId": subject_id}
-            )).json()
-
     def get_exam_clazzs(self, school_id: str, subject_id: str):
         """获取某校中参与考试的班级（无鉴权）"""
-        return asyncio.run(self.__get_exam_clazzs(school_id, subject_id))
+        return self.request_api(URLs.exam_clazzs, params={"schoolId": school_id, "markingPaperId": subject_id})
 
     def get_exams(
             self, start_time=None, end_time=None, exam_name: str = None, grade_code="all",
@@ -273,7 +262,8 @@ class TeacherAccount(Account):
             self.request_api(
                 URLs.tch_checksheet,
                 params={'userId': user_id, 'paperId': paper_id},
-                return_json=False).text)[0])
+                return_json=False
+            ).text)[0])
 
     def get_exam_detail(self, exam_id: str):
         """获取考试详情（无鉴权）"""
