@@ -58,14 +58,13 @@ class Account:
             return_json: bool = True
     ):
         if not self._session.get(URLs.login_state).json()["result"] == "success":  # 检查登录状态
-            self._session = zhixue_login(
-                username=base64.b64decode(self._session.cookies["uname"].encode()).decode(),
-                password=base64.b64decode(self._session.cookies["pwd"].encode()).decode()
-            )._session
+            self._session = login(username=base64.b64decode(self._session.cookies["uname"].encode()).decode(),
+                                  password=base64.b64decode(self._session.cookies["pwd"].encode()).decode())._session
         req = self._session.get(url=url, params=params, headers=headers)
         if req.status_code != 200 or not req.ok:
-            raise ValueError("No Permission.") if req.status_code == 500 else \
-                RuntimeError(f"Request Error {req.status_code}: {req.text}")
+            if req.status_code == 500:
+                raise ValueError("No Permission.")
+            RuntimeError(f"Request Error {req.status_code}: {req.text}")
         if check:
             try:
                 if req.json()['errorCode'] != 0:
@@ -239,10 +238,10 @@ class TeacherAccount(Account):
 
     def get_checksheet_datas(self, user_id: str, topic_set_id: str):
         """获得原卷中的数据（包括答题卡裁切定位信息、题目信息及阅卷情况等）（普通鉴权）"""
-        return json.loads(re.findall(
+        return json.loads(re.search(
             r'var sheetDatas = (.*?);',
             self.get_checksheet(user_id, topic_set_id, ret=True)
-        )[0])
+        ).group(1))
 
     def get_exam_detail(self, exam_id: str):
         """获取考试详情（无鉴权）"""
@@ -258,7 +257,7 @@ class TeacherAccount(Account):
         )
 
 
-def zhixue_login(username: str, password: str) -> StudentAccount | TeacherAccount:
+def login(username: str, password: str) -> StudentAccount | TeacherAccount:
     """使用账号和密码登录"""
     session = requests.Session()
     password = pow(
