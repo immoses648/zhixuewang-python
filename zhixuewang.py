@@ -1,37 +1,42 @@
-import json
 import re
+import json
 import time
 import uuid
-
 import base64
 from hashlib import md5
+
 import requests
 
 
 # URLS
 class URLs:
+    # BASE
     base_domain = "zhixue.com"
     base = f"https://www.{base_domain}"
+
+    # LOGIN
     sso_service = f"{base}:443/ssoservice.jsp"
     sso = f"https://sso.{base_domain}/sso_alpha/login?service={sso_service}"
     login_state = f"{base}/loginState/"
 
+    container = f"{base}/container"
+    zhixuebao = f"{base}/zhixuebao"
+
     # STUDENT
-    stu_info = f"{base}/container/container/student/account/"
-    stu_exams = f"{base}/zhixuebao/report/exam/getUserExamList"
-    stu_checksheet = f"{base}/zhixuebao/report/checksheet/"
+    stu_info = f"{container}/container/student/account/"
+    stu_exams = f"{zhixuebao}/report/exam/getUserExamList"
+    stu_checksheet = f"{zhixuebao}/report/checksheet/"
     xtoken = f"{base}/addon/error/book/index"
-    clazzs = f"{base}/zhixuebao/zhixuebao/friendmanage/"
-    classmates = f"{base}/container/contact/student/students"
-    teachers = f"{base}/container/contact/student/teachers"
-    recent_exam = f"{base}/zhixuebao/report/exam/getRecentExam"
-    exam_report = f"{base}/zhixuebao/report/exam/getReportMain"
-    exam_level_trend = f"{base}/zhixuebao/report/exam/getLevelTrend"
-    subject_diagnosis = f"{base}/zhixuebao/report/exam/getSubjectDiagnosis"
+    clazzs = f"{zhixuebao}/zhixuebao/friendmanage/"
+    classmates = f"{container}/contact/student/students"
+    teachers = f"{container}/contact/student/teachers"
+    recent_exam = f"{zhixuebao}/report/exam/getRecentExam"
+    exam_report = f"{zhixuebao}/report/exam/getReportMain"
+    exam_level_trend = f"{zhixuebao}/report/exam/getLevelTrend"
+    subject_diagnosis = f"{zhixuebao}/report/exam/getSubjectDiagnosis"
 
     # TEACHER
-    tch_homepage = f"{base}/htm-vessel/#/teacher"
-    tch_info = f"{base}/container/container/teacher/teacherAccountNew"
+    tch_info = f"{container}/container/teacher/teacherAccountNew"
     tch_checksheet = f"{base}/classreport/class/student/checksheet/"
     exam_detail = f"{base}/scanmuster/cloudRec/scanrecognition"
     exam_clazzs = f"{base}/exam/marking/schoolClass"
@@ -50,7 +55,8 @@ class Account:
             params: dict = None,
             headers: dict = None,
             check: bool = False,
-            return_json: bool = True):
+            return_json: bool = True
+    ):
         if not self._session.get(URLs.login_state).json()["result"] == "success":  # 检查登录状态
             self._session = zhixue_login(
                 username=base64.b64decode(self._session.cookies["uname"].encode()).decode(),
@@ -70,7 +76,6 @@ class Account:
         return req.json() if return_json else req
 
 
-# MAIN CLASSES
 class StudentAccount(Account):
     """学生账号"""
 
@@ -202,7 +207,7 @@ class TeacherAccount(Account):
     @property
     def info(self):
         if self._info == {}:
-            self._info = self.request_api(URLs.tch_info, headers={"referer": URLs.tch_homepage})["teacher"]
+            self._info = self.request_api(URLs.tch_info)['teacher']
         return self._info
 
     def get_exam_clazzs(self, school_id: str, topic_set_id: str):
@@ -222,7 +227,7 @@ class TeacherAccount(Account):
             URLs.tch_checksheet,
             params={"userId": user_id, "paperId": topic_set_id},
             return_json=False
-        ).text.replace("//static.zhixue.com", "https://static.zhixue.com")  # 替换html内容，让文件可以正常显示
+        ).text.replace("//static." + URLs.base_domain, "https://static." + URLs.base_domain)  # 替换协议头让文件正常显示
         if ret:
             return result
         with open(
@@ -256,15 +261,15 @@ class TeacherAccount(Account):
 def zhixue_login(username: str, password: str) -> StudentAccount | TeacherAccount:
     """使用账号和密码登录"""
     session = requests.Session()
-    # password = pow(
-    #     int.from_bytes(password.encode()[::-1], "big"), 65537, 186198350384465244738867467156319743461
-    # ).to_bytes(16, "big").hex() if len(password) != 32 else password  # password使用Python纯原生库进行加密
+    password = pow(
+        int.from_bytes(password.encode()[::-1], "big"), 65537, 186198350384465244738867467156319743461
+    ).to_bytes(16, "big").hex() if len(password) != 32 else password  # password使用Python纯原生库进行加密
     session.headers["User-Agent"] = "Mozilla/5.0 (Windows NT 6.1; rv:2.0.1) Gecko/20100101 Firefox/4.0.1"
     sso_req = json.loads(session.get(URLs.sso).text.strip().replace("\\", "").replace("'", "")[1:-1])
     if sso_req["code"] != 1000:
         raise RuntimeError(f'{sso_req["code"]} error occured when login: {sso_req["data"]}')
     sso_req = json.loads(session.get(URLs.sso, params={
-        # "encode": "true",  # 如果false或不传encode这个参数就明文密码，true就传加密后的密码
+        "encode": "true",  # 如果false或不传encode这个参数就明文密码，true就传加密后的密码
         "_eventId": "submit",
         "appid": "zx-container-client",
         "lt": sso_req["data"]["lt"],
@@ -281,10 +286,10 @@ def zhixue_login(username: str, password: str) -> StudentAccount | TeacherAccoun
     session.post(URLs.sso_service, data={"action": "login", "ticket": sso_req["data"]["st"]})
     session.cookies.set("uname", base64.b64encode(username.encode()).decode())
     session.cookies.set("pwd", base64.b64encode(password.encode()).decode())
-    req_check_type = session.get("https://www.zhixue.com/container/container/index/").url
-    if "student" in req_check_type:
+    check_type_req = session.get(URLs.container + "/container/index/").url
+    if "student" in check_type_req:
         return StudentAccount(session)
-    elif "teacher" in req_check_type:
+    elif "teacher" in check_type_req:
         return TeacherAccount(session)
     else:
         raise ValueError("Unsupport account type")
