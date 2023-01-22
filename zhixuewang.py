@@ -1,9 +1,10 @@
-import base64
-import hashlib
 import json
 import re
 import time
 import uuid
+
+import base64
+from hashlib import md5
 import requests
 
 
@@ -29,64 +30,36 @@ class URLs:
     subject_diagnosis = f"{base}/zhixuebao/report/exam/getSubjectDiagnosis"
 
     # TEACHER
+    tch_homepage = f"{base}/htm-vessel/#/teacher"
     tch_info = f"{base}/container/container/teacher/teacherAccountNew"
-    tch_exams = f"{base}/api-classreport/class/classReportList/"
     tch_checksheet = f"{base}/classreport/class/student/checksheet/"
     exam_detail = f"{base}/scanmuster/cloudRec/scanrecognition"
     exam_clazzs = f"{base}/exam/marking/schoolClass"
-    # clazz_topic_detail = f"{base}/commonment/class/getClassTopicDetailWithNoTopic"
-    # ?markingPaperTopicId=&classId=&topicSetId=&topicTypeId=01&paperType=a
-    # typical_paper = f"{base}/commonment/class/getTypicalPaper"
-    # ?topicSetId=&classId=&topicId=&topicNumber=
     simple_answer_records = f"{base}/commonment/class/getSimpleAnswerRecords/"
-    stu_exam_detail = f"{base}/freshprecisionapi/studentLiteracy/getStuExamDetail"
 
 
 class Account:
-    def __init__(self, session):
-        self._session = session
-        self._auth = {'token': None, 'timestamp': 0.0}
+    def __init__(self, session: requests.Session):
+        self._session: requests.Session = session
+        self._info: dict = {}
+        self._auth: dict = {'token': None, 'timestamp': 0.0}
 
     def request_api(
             self,
             url: str,
             params: dict = None,
-            headers=None,
-            headers_required: bool = False,
+            headers: dict = None,
             check: bool = False,
             return_json: bool = True):
         if not self._session.get(URLs.login_state).json()["result"] == "success":  # 检查登录状态
-            self._session = login(
+            self._session = zhixue_login(
                 username=base64.b64decode(self._session.cookies["uname"].encode()).decode(),
-                password=base64.b64decode(self._session.cookies["pwd"].encode()).decode())._session
-        if headers_required:  # （学生）如果需要headers就获取
-            auth_guid = str(uuid.uuid4())
-            auth_time_stamp = str(int(time.time() * 1000))
-            md5 = hashlib.md5()
-            md5.update((auth_guid + auth_time_stamp + "iflytek!@#123student").encode(encoding="utf-8"))
-            auth_token = md5.hexdigest()
-            if not self._auth['token'] or (time.time() - self._auth['timestamp']) >= 600:  # 判断token是否过期
-                self._auth['token'] = self.request_api(URLs.xtoken, headers={
-                    "authbizcode": "0001",
-                    "authguid": auth_guid,
-                    "authtimestamp": auth_time_stamp,
-                    "authtoken": auth_token
-                }, check=True)
-                self._auth['timestamp'] = time.time()
-            headers = {
-                "authbizcode": "0001",
-                "authguid": auth_guid,
-                "authtimestamp": auth_time_stamp,
-                "authtoken": auth_token,
-                "XToken": self._auth['token']
-            }
+                password=base64.b64decode(self._session.cookies["pwd"].encode()).decode()
+            )._session
         req = self._session.get(url=url, params=params, headers=headers)
         if req.status_code != 200 or not req.ok:
-            raise ValueError(
-                "No Permission."
-            ) if req.status_code == 500 else RuntimeError(
-                f"Request Error: {req.status_code}/{req.text}"
-            )
+            raise ValueError("No Permission.") if req.status_code == 500 else \
+                RuntimeError(f"Request Error {req.status_code}: {req.text}")
         if check:
             try:
                 if req.json()['errorCode'] != 0:
@@ -103,7 +76,32 @@ class StudentAccount(Account):
 
     def __init__(self, session):
         super().__init__(session=session)
-        self.info = self.request_api(URLs.stu_info)["student"]
+
+    @property
+    def info(self) -> dict:
+        """获取个人信息"""
+        if self._info == {}:
+            self._info = self.request_api(URLs.stu_info)["student"]
+        return self._info
+
+    @property
+    def headers(self) -> dict:
+        """获取headers"""
+        guid = str(uuid.uuid4())
+        timestamp = str(int(time.time() * 1000))
+        headers = {
+            "authbizcode": "0001",
+            "authguid": guid,
+            "authtimestamp": timestamp,
+            "authtoken": md5((guid + timestamp + "iflytek!@#123student").encode(encoding="utf-8")).hexdigest()
+        }
+        if not self._auth['token'] or (time.time() - self._auth['timestamp']) >= 600:  # 判断token是否过期
+            self._auth = {
+                'token': self.request_api(URLs.xtoken, headers=headers, check=True),
+                'timestamp': time.time()
+            }
+        headers['XToken'] = self._auth['token']
+        return headers
 
     @property
     def teachers(self) -> list:
@@ -113,7 +111,7 @@ class StudentAccount(Account):
     @property
     def recent_exam(self) -> dict:
         """获取最新考试"""
-        return self.request_api(URLs.recent_exam, headers_required=True, check=True)
+        return self.request_api(URLs.recent_exam, headers=self.headers, check=True)
 
     @property
     def exams(self) -> list:
@@ -122,30 +120,32 @@ class StudentAccount(Account):
         check = True
         exams = []
         while check:
-            cur_exams = self.get_exam_list(i, 100)
+            cur_exams = self.get_exam_list(i, 10000)
             exams.extend(cur_exams['examList'])
             check = cur_exams['hasNextPage']
             i += 1
         return exams
 
     @property
-    def clazzs(self):
+    def clazzs(self) -> list:
         """获取当前年级所有班级"""
-        return self.request_api(URLs.clazzs, params={"d": int(time.time())})
+        return self.request_api(URLs.clazzs, params={"d": int(time.time())})['clazzs']
 
     def get_exam_list(self, page_index: int = 1, page_size: int = 10) -> dict:
         """获取考试列表"""
         return self.request_api(
             URLs.stu_exams,
             params={"pageIndex": page_index, "pageSize": page_size},
-            headers_required=True, check=True)
+            headers=self.headers,
+            check=True
+        )
 
     def get_exam_report(self, exam_id: str = None) -> dict:
         """获取考试报告"""
         return self.request_api(
             URLs.exam_report,
             params={"examId": self.recent_exam["examInfo"]["examId"] if exam_id is None else exam_id},
-            headers_required=True,
+            headers=self.headers,
             check=True
         )
 
@@ -155,8 +155,10 @@ class StudentAccount(Account):
             URLs.stu_checksheet,
             params={
                 "examId": self.recent_exam["examInfo"]["examId"] if exam_id is None else exam_id,
-                "paperId": topic_set_id},
-            headers_required=True)
+                "paperId": topic_set_id
+            },
+            headers=self.headers
+        )
 
     def get_classmates(self, clazz_id: str = None) -> list:
         """获取班级所有学生"""
@@ -164,7 +166,7 @@ class StudentAccount(Account):
             URLs.classmates,
             params={
                 "r": f"{self.info['id']}student",
-                "clazzId": self.info["clazz"]["id"] if clazz_id is None else clazz_id
+                "clazzId": self.info["clazz"]["id"] if clazz_id is None else clazz_id,
             }
         )
 
@@ -175,9 +177,9 @@ class StudentAccount(Account):
             params={
                 "examId": self.recent_exam["examInfo"]["examId"] if exam_id is None else exam_id,
                 "pageIndex": page_index,
-                "pageSize": page_size
+                "pageSize": page_size,
             },
-            headers_required=True,
+            headers=self.headers,
             check=True
         )
 
@@ -186,7 +188,7 @@ class StudentAccount(Account):
         return self.request_api(
             URLs.subject_diagnosis,
             params={"examId": self.recent_exam["examInfo"]["examId"] if exam_id is None else exam_id},
-            headers_required=True,
+            headers=self.headers,
             check=True
         )
 
@@ -196,9 +198,12 @@ class TeacherAccount(Account):
 
     def __init__(self, session):
         super().__init__(session=session)
-        self.info = self.request_api(
-            URLs.tch_info,
-            headers={"referer": "https://www.zhixue.com/container/container/teacher/index/"})["teacher"]
+
+    @property
+    def info(self):
+        if self._info == {}:
+            self._info = self.request_api(URLs.tch_info, headers={"referer": URLs.tch_homepage})["teacher"]
+        return self._info
 
     def get_exam_clazzs(self, school_id: str, topic_set_id: str):
         """获取某校中参与考试的班级（无鉴权）"""
@@ -231,11 +236,8 @@ class TeacherAccount(Account):
         """获得原卷中的数据（包括答题卡裁切定位信息、题目信息及阅卷情况等）（普通鉴权）"""
         return json.loads(re.findall(
             r'var sheetDatas = (.*?);',
-            self.request_api(
-                URLs.tch_checksheet,
-                params={'userId': user_id, 'paperId': topic_set_id},
-                return_json=False
-            ).text)[0])
+            self.get_checksheet(user_id, topic_set_id, ret=True)
+        )[0])
 
     def get_exam_detail(self, exam_id: str):
         """获取考试详情（无鉴权）"""
@@ -250,44 +252,13 @@ class TeacherAccount(Account):
             params={"classId": clazz_id, "topicSetId": topic_set_id, "topicNumber": topic_number, "type": _type}
         )
 
-    def get_stu_exam_detail(self, subject_id, clazz_id, stu_id, time_id=None, exam_type=None, clazz_type="1"):
-        """获取学生某科目往次考试详情（强鉴权）"""
-        return self.request_api(
-            URLs.stu_exam_detail,
-            params={"userId": self.info['id'],
-                    "subjectId": subject_id,
-                    "timeId": "2022-2023,"
-                              "2021-2022,"
-                              "2020-2021,"
-                              "2019-2020,"
-                              "2018-2019,"
-                              "2017-2018,"
-                              "2016-2017,"
-                              "2015-2016,"
-                              "2014-2015"
-                    if time_id is None else time_id,
-                    "classId": clazz_id,
-                    "stuId": stu_id,
-                    "examType": "midtermExam,"
-                                "terminalExam,"
-                                "weeklyExam,"
-                                "monthlyExam,"
-                                "unifiedExam,"
-                                "homework,"
-                                "limitedTimeWork,"
-                                "mockExam" if exam_type is None else exam_type,
-                    "classType": clazz_type,
-                    "t": int(time.time())}
-        )
 
-
-def login(username: str, password: str) -> StudentAccount | TeacherAccount:
+def zhixue_login(username: str, password: str) -> StudentAccount | TeacherAccount:
     """使用账号和密码登录"""
     session = requests.Session()
-    # password使用Python纯原生库进行加密
     # password = pow(
     #     int.from_bytes(password.encode()[::-1], "big"), 65537, 186198350384465244738867467156319743461
-    # ).to_bytes(16, "big").hex() if len(password) != 32 else password
+    # ).to_bytes(16, "big").hex() if len(password) != 32 else password  # password使用Python纯原生库进行加密
     session.headers["User-Agent"] = "Mozilla/5.0 (Windows NT 6.1; rv:2.0.1) Gecko/20100101 Firefox/4.0.1"
     sso_req = json.loads(session.get(URLs.sso).text.strip().replace("\\", "").replace("'", "")[1:-1])
     if sso_req["code"] != 1000:
@@ -303,10 +274,10 @@ def login(username: str, password: str) -> StudentAccount | TeacherAccount:
     }).text.strip().replace("\\", "").replace("'", "")[1:-1])
     if sso_req["code"] != 1001:
         if sso_req["code"] == 1002:
-            raise ValueError("Incorrect username and password")
+            raise ValueError("1002: Incorrect username and password")
         if sso_req["code"] == 2009:
-            raise ValueError("Account does not exist")
-        raise RuntimeError(f'{sso_req["code"]} error occured when login: {sso_req["data"]}')
+            raise ValueError("2009: Account does not exist")
+        raise RuntimeError(f'{sso_req["code"]}: {sso_req["data"]}')
     session.post(URLs.sso_service, data={"action": "login", "ticket": sso_req["data"]["st"]})
     session.cookies.set("uname", base64.b64encode(username.encode()).decode())
     session.cookies.set("pwd", base64.b64encode(password.encode()).decode())
