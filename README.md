@@ -1,6 +1,7 @@
 # zhixuewang-python
 ### 调用返回智学网返回的完整数据。
 python版 智学网api
+仅需pip安装requests即可开始使用。
 ```bash
 git clone https://github.com/immoses648/zhixuewang-python
 pip install requests
