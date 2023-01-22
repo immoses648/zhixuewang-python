@@ -4,11 +4,7 @@ import json
 import re
 import time
 import uuid
-
 import requests
-import rsa.common
-import rsa.core
-import rsa.transform
 
 
 # URLS
@@ -50,7 +46,6 @@ class Account:
     def __init__(self, session):
         self._session = session
         self._auth = {'token': None, 'timestamp': 0.0}
-        self.info = None
 
     def request_api(
             self,
@@ -62,7 +57,7 @@ class Account:
             return_json: bool = True):
         if not self._session.get(URLs.login_state).json()["result"] == "success":  # 检查登录状态
             self._session = login(
-                username=self.info['loginName'],
+                username=base64.b64decode(self._session.cookies["uname"].encode()).decode(),
                 password=base64.b64decode(self._session.cookies["pwd"].encode()).decode())._session
         if headers_required:  # （学生）如果需要headers就获取
             auth_guid = str(uuid.uuid4())
@@ -95,10 +90,10 @@ class Account:
         if check:
             try:
                 if req.json()['errorCode'] != 0:
-                    raise ValueError(f"API Error: {req.json()['errorCode']}/{req.text}")
+                    raise ValueError(f"API Error {req.json()['errorCode']}: {req.text}")
                 return req.json()['result'] if return_json else req
             except (json.JSONDecodeError, KeyError) as e:
-                raise RuntimeError(f'API Error: {req.status_code}/{req.text}/{e}')
+                raise RuntimeError(f'API Error {req.status_code}: {req.text}/{e}')
         return req.json() if return_json else req
 
 
@@ -106,26 +101,22 @@ class Account:
 class StudentAccount(Account):
     """学生账号"""
 
-    def set_base_info(self):
-        """设置账户基本信息"""
-        json_data = self.request_api(URLs.stu_info)["student"]
-        if not json_data.get("clazz", False):
-            raise ValueError("账号已失效")
-        self.info = json_data
-        return self
+    def __init__(self, session):
+        super().__init__(session=session)
+        self.info = self.request_api(URLs.stu_info)["student"]
 
-    def get_exam_list(self, page_index: int = 1, page_size: int = 10) -> dict:
-        """获取考试列表"""
-        return self.request_api(
-            URLs.stu_exams,
-            params={"pageIndex": page_index, "pageSize": page_size},
-            headers_required=True, check=True)
+    @property
+    def teachers(self) -> list:
+        """获取班级所有老师"""
+        return self.request_api(URLs.teachers)
 
-    def get_recent_exam(self) -> dict:
+    @property
+    def recent_exam(self) -> dict:
         """获取最新考试"""
         return self.request_api(URLs.recent_exam, headers_required=True, check=True)
 
-    def get_exams(self) -> list:
+    @property
+    def exams(self) -> list:
         """获取所有考试"""
         i = 1
         check = True
@@ -137,27 +128,35 @@ class StudentAccount(Account):
             i += 1
         return exams
 
-    def get_exam_report(self, exam: str = None) -> dict:
+    @property
+    def clazzs(self):
+        """获取当前年级所有班级"""
+        return self.request_api(URLs.clazzs, params={"d": int(time.time())})
+
+    def get_exam_list(self, page_index: int = 1, page_size: int = 10) -> dict:
+        """获取考试列表"""
+        return self.request_api(
+            URLs.stu_exams,
+            params={"pageIndex": page_index, "pageSize": page_size},
+            headers_required=True, check=True)
+
+    def get_exam_report(self, exam_id: str = None) -> dict:
         """获取考试报告"""
         return self.request_api(
             URLs.exam_report,
-            params={"examId": self.get_recent_exam()["examInfo"]["examId"] if exam is None else exam},
+            params={"examId": self.recent_exam["examInfo"]["examId"] if exam_id is None else exam_id},
             headers_required=True,
             check=True
         )
 
-    def get_checksheet(self, subject_id: str, exam_id=None):
+    def get_checksheet(self, topic_set_id: str, exam_id=None):
         """（学生）获取原卷"""
         return self.request_api(
             URLs.stu_checksheet,
             params={
-                "examId": self.get_recent_exam()["examInfo"]["examId"] if exam_id is None else exam_id,
-                "paperId": subject_id},
+                "examId": self.recent_exam["examInfo"]["examId"] if exam_id is None else exam_id,
+                "paperId": topic_set_id},
             headers_required=True)
-
-    def get_clazzs(self):
-        """获取当前年级所有班级"""
-        return self.request_api(URLs.clazzs, params={"d": int(time.time())})
 
     def get_classmates(self, clazz_id: str = None) -> list:
         """获取班级所有学生"""
@@ -169,16 +168,12 @@ class StudentAccount(Account):
             }
         )
 
-    def get_teachers(self) -> list:
-        """获取班级所有老师"""
-        return self.request_api(URLs.teachers)
-
     def get_exam_level_trend(self, exam_id: str = None, page_index: int = 1, page_size: int = 100) -> dict:
         """获取考试等级趋势"""
         return self.request_api(
             URLs.exam_level_trend,
             params={
-                "examId": self.get_recent_exam()["examInfo"]["examId"] if exam_id is None else exam_id,
+                "examId": self.recent_exam["examInfo"]["examId"] if exam_id is None else exam_id,
                 "pageIndex": page_index,
                 "pageSize": page_size
             },
@@ -190,7 +185,7 @@ class StudentAccount(Account):
         """获取科目诊断"""
         return self.request_api(
             URLs.subject_diagnosis,
-            params={"examId": self.get_recent_exam()["examInfo"]["examId"] if exam_id is None else exam_id},
+            params={"examId": self.recent_exam["examInfo"]["examId"] if exam_id is None else exam_id},
             headers_required=True,
             check=True
         )
@@ -199,69 +194,46 @@ class StudentAccount(Account):
 class TeacherAccount(Account):
     """老师账号"""
 
-    def set_base_info(self):
+    def __init__(self, session):
+        super().__init__(session=session)
         self.info = self.request_api(
             URLs.tch_info,
             headers={"referer": "https://www.zhixue.com/container/container/teacher/index/"})["teacher"]
-        return self
 
-    def get_exam_clazzs(self, school_id: str, subject_id: str):
+    def get_exam_clazzs(self, school_id: str, topic_set_id: str):
         """获取某校中参与考试的班级（无鉴权）"""
-        return self.request_api(URLs.exam_clazzs, params={"schoolId": school_id, "markingPaperId": subject_id})
+        return self.request_api(URLs.exam_clazzs, params={"schoolId": school_id, "markingPaperId": topic_set_id})
 
-    def get_exams(
-            self, start_time=None, end_time=None, exam_name: str = None, grade_code="all",
-            class_id="all", subject_code="all", search_type="schoolYearType", circles_year=None,
-            exam_type_code="all", term_id=None, teaching_cycle_id=None,
-            page_size=100, page_index=1) -> dict:
-        """获取教师报告列表（强鉴权）"""
-        return self.request_api(URLs.tch_exams, params={
-            "examName": exam_name,
-            "gradeCode": grade_code,
-            "classId": class_id,
-            "subjectCode": subject_code,
-            "searchType": search_type,
-            "circlesYear": circles_year,
-            "examTypeCode": exam_type_code,
-            "termId": term_id,
-            "teachingCycleId": teaching_cycle_id,
-            "startTime": start_time,
-            "endTime": end_time,
-            "pageSize": page_size,
-            "pageIndex": page_index,
-            "t": int(time.time())
-        })
-
-    def get_checksheet(self, user_id: str, paper_id: str, save_to_path: str = None, ret: bool = False):
+    def get_checksheet(self, user_id: str, topic_set_id: str, save_to_path: str = None, ret: bool = False):
         """
         获得原卷（普通鉴权）
         Args:
             user_id (str): 学生的userId
-            paper_id (str): 试卷的topicSetId
+            topic_set_id (str): 试卷的topicSetId
             save_to_path (str): 为原卷保存位置(html文件), 精确到文件名, 默认为f"{user_id}_{paper_id}.html"
             ret (bool): 为返回类型, False为保存到本地, True为直接返回原卷内容
         """
         result = self.request_api(
             URLs.tch_checksheet,
-            params={"userId": user_id, "paperId": paper_id},
+            params={"userId": user_id, "paperId": topic_set_id},
             return_json=False
         ).text.replace("//static.zhixue.com", "https://static.zhixue.com")  # 替换html内容，让文件可以正常显示
         if ret:
             return result
         with open(
-                f"{user_id}_{paper_id}.html" if save_to_path is None else save_to_path,
+                f"{user_id}_{topic_set_id}.html" if save_to_path is None else save_to_path,
                 encoding="utf-8",
                 mode="w+") as fhandle:
             fhandle.writelines(result)
         return
 
-    def get_checksheet_datas(self, user_id: str, paper_id: str):
+    def get_checksheet_datas(self, user_id: str, topic_set_id: str):
         """获得原卷中的数据（包括答题卡裁切定位信息、题目信息及阅卷情况等）（普通鉴权）"""
         return json.loads(re.findall(
             r'var sheetDatas = (.*?);',
             self.request_api(
                 URLs.tch_checksheet,
-                params={'userId': user_id, 'paperId': paper_id},
+                params={'userId': user_id, 'paperId': topic_set_id},
                 return_json=False
             ).text)[0])
 
@@ -309,62 +281,39 @@ class TeacherAccount(Account):
         )
 
 
-def login(username: str, password: str, _type: str = "auto"):
-    """使用账号密码登录
-
-    Args:
-        username (str): Username or 准考证号
-        password (str): Password (also accept encrypted password)
-        _type (str, optional): the type of the value of username. Defaults to "auto".
-
-    """
-    if len(password) != 32:
-        e = "010001"
-        m = "008c147f73c2593cba0bd007e60a89ade5"
-        keylength = rsa.common.byte_size(rsa.PublicKey(int(m, 16), int(e, 16)).n)
-        padding = b''
-        for i in range(keylength - len(password.encode()[::-1]) - 3):
-            padding += b'\x00'
-        encrypted = rsa.core.encrypt_int(
-            rsa.transform.bytes2int(b''.join([b'\x00\x00', padding, b'\x00', password.encode()[::-1]])),
-            rsa.PublicKey(int(m, 16), int(e, 16)).e,
-            rsa.PublicKey(int(m, 16), int(e, 16)).n)
-        password = rsa.transform.int2bytes(encrypted, keylength).hex()
+def login(username: str, password: str) -> StudentAccount | TeacherAccount:
+    """使用账号和密码登录"""
     session = requests.Session()
+    # password使用Python纯原生库进行加密
+    # password = pow(
+    #     int.from_bytes(password.encode()[::-1], "big"), 65537, 186198350384465244738867467156319743461
+    # ).to_bytes(16, "big").hex() if len(password) != 32 else password
     session.headers["User-Agent"] = "Mozilla/5.0 (Windows NT 6.1; rv:2.0.1) Gecko/20100101 Firefox/4.0.1"
-    json_obj = json.loads(session.get(URLs.sso).text.strip().replace("\\", "").replace("'", "")[1:-1])
-    if json_obj["code"] != 1000:
-        raise RuntimeError(f'An error occured when login:{json_obj["code"]}/{json_obj["data"]}')
-    r = session.get(
-        URLs.sso,
-        params={
-            "encode": "true",
-            "sourceappname": "tkyh,tkyh",
-            "_eventId": "submit",
-            "appid": "zx-container-client",
-            "client": "web",
-            "type": "loginByNormal",
-            "key": _type,
-            "lt": json_obj["data"]["lt"],
-            "execution": json_obj["data"]["execution"],
-            "customLogoutUrl": "https://www.zhixue.com/login.html",
-            "username": username,
-            "password": password
-        })
-    json_obj = json.loads(r.text.strip().replace("\\", "").replace("'", "")[1:-1])
-    if json_obj["code"] != 1001:
-        if json_obj["code"] == 1002:
+    sso_req = json.loads(session.get(URLs.sso).text.strip().replace("\\", "").replace("'", "")[1:-1])
+    if sso_req["code"] != 1000:
+        raise RuntimeError(f'{sso_req["code"]} error occured when login: {sso_req["data"]}')
+    sso_req = json.loads(session.get(URLs.sso, params={
+        # "encode": "true",  # 如果false或不传encode这个参数就明文密码，true就传加密后的密码
+        "_eventId": "submit",
+        "appid": "zx-container-client",
+        "lt": sso_req["data"]["lt"],
+        "execution": sso_req["data"]["execution"],
+        "username": username,
+        "password": password
+    }).text.strip().replace("\\", "").replace("'", "")[1:-1])
+    if sso_req["code"] != 1001:
+        if sso_req["code"] == 1002:
             raise ValueError("Incorrect username and password")
-        if json_obj["code"] == 2009:
+        if sso_req["code"] == 2009:
             raise ValueError("Account does not exist")
-        raise RuntimeError(f'An error occured when login:{json_obj["code"]}/{json_obj["data"]}')
-    session.post(URLs.sso_service, data={"action": "login", "ticket": json_obj["data"]["st"]})
+        raise RuntimeError(f'{sso_req["code"]} error occured when login: {sso_req["data"]}')
+    session.post(URLs.sso_service, data={"action": "login", "ticket": sso_req["data"]["st"]})
     session.cookies.set("uname", base64.b64encode(username.encode()).decode())
     session.cookies.set("pwd", base64.b64encode(password.encode()).decode())
     req_check_type = session.get("https://www.zhixue.com/container/container/index/").url
     if "student" in req_check_type:
-        return StudentAccount(session).set_base_info()
+        return StudentAccount(session)
     elif "teacher" in req_check_type:
-        return TeacherAccount(session).set_base_info()
+        return TeacherAccount(session)
     else:
         raise ValueError("Unsupport account type")
