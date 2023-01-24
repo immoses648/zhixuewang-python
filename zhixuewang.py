@@ -58,8 +58,10 @@ class Account:
             return_json: bool = True
     ):
         if not self._session.get(URLs.login_state).json()["result"] == "success":  # 检查登录状态
-            self._session = login(username=base64.b64decode(self._session.cookies["uname"].encode()).decode(),
-                                  password=base64.b64decode(self._session.cookies["pwd"].encode()).decode())._session
+            self._session = zhixue_login(
+                username=base64.b64decode(self._session.cookies["uname"].encode()).decode(),
+                password=base64.b64decode(self._session.cookies["pwd"].encode()).decode()
+            )._session
         req = self._session.get(url=url, params=params, headers=headers)
         if req.status_code != 200 or not req.ok:
             if req.status_code == 500:
@@ -136,7 +138,12 @@ class StudentAccount(Account):
         return self.request_api(URLs.clazzs, params={"d": int(time.time())})['clazzs']
 
     def get_exam_list(self, page_index: int = 1, page_size: int = 10) -> dict:
-        """获取考试列表"""
+        """
+        获取考试列表
+        :param page_index: 页码, 默认1
+        :param page_size: 每页数量, 默认10
+        :return: 考试列表
+        """
         return self.request_api(
             URLs.stu_exams,
             params={"pageIndex": page_index, "pageSize": page_size},
@@ -144,28 +151,40 @@ class StudentAccount(Account):
             check=True
         )
 
-    def get_exam_report(self, exam_id: str = None) -> dict:
-        """获取考试报告"""
+    def get_exam_report(self, exam_id: str = "") -> dict:
+        """
+        获取考试报告
+        :param exam_id: 考试ID, 默认为最新考试
+        :return: 考试报告
+        """
         return self.request_api(
             URLs.exam_report,
-            params={"examId": self.recent_exam["examInfo"]["examId"] if exam_id is None else exam_id},
+            params={"examId": self.recent_exam["examInfo"]["examId"] if exam_id == "" else exam_id},
             headers=self.headers,
             check=True
         )
 
-    def get_checksheet(self, topic_set_id: str, exam_id=None):
-        """（学生）获取原卷"""
+    def get_checksheet(self, topic_set_id: str, exam_id="") -> list:
+        """
+        （学生）获取原卷
+        :param topic_set_id: 题集ID (试卷ID)
+        :param exam_id: 考试ID, 默认为最新考试
+        :return: 原卷图片列表
+        """
         return self.request_api(
             URLs.stu_checksheet,
             params={
-                "examId": self.recent_exam["examInfo"]["examId"] if exam_id is None else exam_id,
+                "examId": self.recent_exam["examInfo"]["examId"] if exam_id == "" else exam_id,
                 "paperId": topic_set_id
             },
             headers=self.headers
         )
 
     def get_classmates(self, clazz_id: str = None) -> list:
-        """获取班级所有学生"""
+        """
+        获取班级所有学生
+        :param clazz_id: 班级ID, 默认为当前班级
+        """
         return self.request_api(
             URLs.classmates,
             params={
@@ -175,7 +194,12 @@ class StudentAccount(Account):
         )
 
     def get_exam_level_trend(self, exam_id: str = None, page_index: int = 1, page_size: int = 100) -> dict:
-        """获取考试等级趋势"""
+        """
+        获取考试等级趋势
+        :param exam_id: 考试ID, 默认为最新考试
+        :param page_index: 页码, 默认1
+        :param page_size: 每页数量, 默认100
+        """
         return self.request_api(
             URLs.exam_level_trend,
             params={
@@ -188,7 +212,9 @@ class StudentAccount(Account):
         )
 
     def get_subject_diagnosis(self, exam_id: str = None) -> dict:
-        """获取科目诊断"""
+        """获取科目诊断
+        :param exam_id: 考试ID, 默认为最新考试
+        """
         return self.request_api(
             URLs.subject_diagnosis,
             params={"examId": self.recent_exam["examInfo"]["examId"] if exam_id is None else exam_id},
@@ -210,17 +236,19 @@ class TeacherAccount(Account):
         return self._info
 
     def get_exam_clazzs(self, school_id: str, topic_set_id: str):
-        """获取某校中参与考试的班级（无鉴权）"""
+        """获取某校中参与考试的班级（无鉴权）
+        :param school_id: 学校ID
+        :param topic_set_id: 题集ID
+        """
         return self.request_api(URLs.exam_clazzs, params={"schoolId": school_id, "markingPaperId": topic_set_id})
 
     def get_checksheet(self, user_id: str, topic_set_id: str, save_to_path: str = None, ret: bool = False):
         """
         获得原卷（普通鉴权）
-        Args:
-            user_id (str): 学生的userId
-            topic_set_id (str): 试卷的topicSetId
-            save_to_path (str): 为原卷保存位置(html文件), 精确到文件名, 默认为f"{user_id}_{paper_id}.html"
-            ret (bool): 为返回类型, False为保存到本地, True为直接返回原卷内容
+        :param user_id: 学生的userId
+        :param topic_set_id: 试卷的topicSetId
+        :param save_to_path: 为原卷保存位置(html文件), 精确到文件名, 默认为f"{user_id}_{paper_id}.html"
+        :param ret: 为返回类型, False为保存到本地, True为直接返回原卷内容
         """
         result = self.request_api(
             URLs.tch_checksheet,
@@ -237,28 +265,45 @@ class TeacherAccount(Account):
         return
 
     def get_checksheet_datas(self, user_id: str, topic_set_id: str):
-        """获得原卷中的数据（包括答题卡裁切定位信息、题目信息及阅卷情况等）（普通鉴权）"""
+        """
+        获得原卷中的数据（包括答题卡裁切定位信息、题目信息及阅卷情况等）（普通鉴权）
+        :param user_id: 学生的userId
+        :param topic_set_id: 试卷的topicSetId
+        """
         return json.loads(re.search(
             r'var sheetDatas = (.*?);',
             self.get_checksheet(user_id, topic_set_id, ret=True)
         ).group(1))
 
     def get_exam_detail(self, exam_id: str):
-        """获取考试详情（无鉴权）"""
+        """
+        获取考试详情（无鉴权）
+        :param exam_id: 考试ID
+        """
         return self.request_api(URLs.exam_detail, params={"examId": exam_id}, check=True)
 
     def get_simple_answer_records(
             self, clazz_id: str, topic_set_id: str, topic_number: int = 1, _type: str = "a"
     ) -> list:
-        """获取班级单题答题记录（普通鉴权）"""
+        """
+        获取班级单题答题记录（普通鉴权）
+        :param clazz_id: 班级ID
+        :param topic_set_id: 题集ID
+        :param topic_number: 题号
+        :param _type: 类型
+        """
         return self.request_api(
             URLs.simple_answer_records,
             params={"classId": clazz_id, "topicSetId": topic_set_id, "topicNumber": topic_number, "type": _type}
         )
 
 
-def login(username: str, password: str) -> StudentAccount | TeacherAccount:
-    """使用账号和密码登录"""
+def zhixue_login(username: str, password: str) -> StudentAccount | TeacherAccount:
+    """
+    使用账号和密码登录
+    :param username: 智学网账号（或ID）
+    :param password: 智学网密码（可传入加密后的密码）
+    """
     session = requests.Session()
     password = pow(
         int.from_bytes(password.encode()[::-1], "big"), 65537, 186198350384465244738867467156319743461
