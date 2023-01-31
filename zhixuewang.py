@@ -103,7 +103,11 @@ class StudentAccount(Account):
         }
         if not self._auth['token'] or (time.time() - self._auth['timestamp']) >= 600:  # 判断token是否过期
             self._auth = {
-                'token': self.request_api(URLs.xtoken, headers=headers, check=True),
+                'token': self.request_api(
+                    url=URLs.xtoken,
+                    headers=headers,
+                    check=True
+                ),
                 'timestamp': time.time()
             }
         headers['XToken'] = self._auth['token']
@@ -112,12 +116,17 @@ class StudentAccount(Account):
     @property
     def teachers(self) -> list:
         """获取班级所有老师"""
-        return self.request_api(URLs.teachers)
+        return self.request_api(
+            url=URLs.teachers
+        )
 
     @property
     def recent_exam(self) -> dict:
         """获取最新考试"""
-        return self.request_api(URLs.recent_exam, headers=self.headers, check=True)
+        return self.request_api(
+            url=URLs.recent_exam,
+            headers=self.headers,
+            check=True)
 
     @property
     def exams(self) -> list:
@@ -135,7 +144,10 @@ class StudentAccount(Account):
     @property
     def clazzs(self) -> list:
         """获取当前年级所有班级"""
-        return self.request_api(URLs.clazzs, params={"d": int(time.time())})['clazzs']
+        return self.request_api(
+            url=URLs.clazzs,
+            params={"d": int(time.time())}
+        )['clazzs']
 
     def get_exam_list(self, page_index: int = 1, page_size: int = 10) -> dict:
         """
@@ -145,7 +157,7 @@ class StudentAccount(Account):
         :return: 考试列表
         """
         return self.request_api(
-            URLs.stu_exams,
+            url=URLs.stu_exams,
             params={"pageIndex": page_index, "pageSize": page_size},
             headers=self.headers,
             check=True
@@ -158,7 +170,7 @@ class StudentAccount(Account):
         :return: 考试报告
         """
         return self.request_api(
-            URLs.exam_report,
+            url=URLs.exam_report,
             params={"examId": self.recent_exam["examInfo"]["examId"] if exam_id == "" else exam_id},
             headers=self.headers,
             check=True
@@ -172,7 +184,7 @@ class StudentAccount(Account):
         :return: 原卷图片列表
         """
         return self.request_api(
-            URLs.stu_checksheet,
+            url=URLs.stu_checksheet,
             params={
                 "examId": self.recent_exam["examInfo"]["examId"] if exam_id == "" else exam_id,
                 "paperId": topic_set_id
@@ -186,7 +198,7 @@ class StudentAccount(Account):
         :param clazz_id: 班级ID, 默认为当前班级
         """
         return self.request_api(
-            URLs.classmates,
+            url=URLs.classmates,
             params={
                 "r": f"{self.info['id']}student",
                 "clazzId": self.info["clazz"]["id"] if clazz_id is None else clazz_id,
@@ -201,7 +213,7 @@ class StudentAccount(Account):
         :param page_size: 每页数量, 默认100
         """
         return self.request_api(
-            URLs.exam_level_trend,
+            url=URLs.exam_level_trend,
             params={
                 "examId": self.recent_exam["examInfo"]["examId"] if exam_id is None else exam_id,
                 "pageIndex": page_index,
@@ -232,7 +244,7 @@ class TeacherAccount(Account):
     @property
     def info(self):
         if self._info == {}:
-            self._info = self.request_api(URLs.tch_info)['teacher']
+            self._info = self.request_api(url=URLs.tch_info)['teacher']
         return self._info
 
     def get_exam_clazzs(self, school_id: str, topic_set_id: str):
@@ -240,7 +252,10 @@ class TeacherAccount(Account):
         :param school_id: 学校ID
         :param topic_set_id: 题集ID
         """
-        return self.request_api(URLs.exam_clazzs, params={"schoolId": school_id, "markingPaperId": topic_set_id})
+        return self.request_api(
+            url=URLs.exam_clazzs,
+            params={"schoolId": school_id, "markingPaperId": topic_set_id}
+        )
 
     def get_checksheet(self, user_id: str, topic_set_id: str, save_to_path: str = None, ret: bool = False):
         """
@@ -251,7 +266,7 @@ class TeacherAccount(Account):
         :param ret: 为返回类型, False为保存到本地, True为直接返回原卷内容
         """
         result = self.request_api(
-            URLs.tch_checksheet,
+            url=URLs.tch_checksheet,
             params={"userId": user_id, "paperId": topic_set_id},
             return_json=False
         ).text.replace("//static." + URLs.base_domain, "https://static." + URLs.base_domain)  # 替换协议头让文件正常显示
@@ -280,7 +295,11 @@ class TeacherAccount(Account):
         获取考试详情（无鉴权）
         :param exam_id: 考试ID
         """
-        return self.request_api(URLs.exam_detail, params={"examId": exam_id}, check=True)
+        return self.request_api(
+            url=URLs.exam_detail,
+            params={"examId": exam_id},
+            check=True
+        )
 
     def get_simple_answer_records(
             self, clazz_id: str, topic_set_id: str, topic_number: int = 1, _type: str = "a"
@@ -293,18 +312,19 @@ class TeacherAccount(Account):
         :param _type: 类型
         """
         return self.request_api(
-            URLs.simple_answer_records,
+            url=URLs.simple_answer_records,
             params={"classId": clazz_id, "topicSetId": topic_set_id, "topicNumber": topic_number, "type": _type}
         )
 
 
-def zhixue_login(username: str, password: str) -> StudentAccount | TeacherAccount:
+def zhixue_login(username: str, password: str, _session: bool = False) -> StudentAccount | TeacherAccount | requests.Session:
     """
     使用账号和密码登录
     :param username: 智学网账号（或ID）
     :param password: 智学网密码（可传入加密后的密码）
+    :param _session: 是否返回Session对象
     """
-    session = requests.Session()
+    session = requests.Session()  # 使用Session保持会话
     password = pow(
         int.from_bytes(password.encode()[::-1], "big"), 65537, 186198350384465244738867467156319743461
     ).to_bytes(16, "big").hex() if len(password) != 32 else password  # password使用Python纯原生库进行加密
@@ -327,10 +347,15 @@ def zhixue_login(username: str, password: str) -> StudentAccount | TeacherAccoun
         if sso_req["code"] == 2009:
             raise ValueError("2009: Account does not exist")
         raise RuntimeError(f'{sso_req["code"]}: {sso_req["data"]}')
-    session.post(URLs.sso_service, data={"action": "login", "ticket": sso_req["data"]["st"]})
+    session.post(
+        url=URLs.sso_service,
+        data={"action": "login", "ticket": sso_req["data"]["st"]}
+    )
     session.cookies.set("uname", base64.b64encode(username.encode()).decode())
     session.cookies.set("pwd", base64.b64encode(password.encode()).decode())
-    check_type_req = session.get(URLs.container + "/container/index/").url
+    check_type_req = session.get(url=URLs.container + "/container/index/").url
+    if _session:
+        return session
     if "student" in check_type_req:
         return StudentAccount(session)
     elif "teacher" in check_type_req:
